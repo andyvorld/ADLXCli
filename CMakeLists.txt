@@ -7,7 +7,7 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 if (CMAKE_BUILD_TYPE STREQUAL "Debug")
     add_definitions(-DDEBUG)
 else()
-    add_compile_options(-O1)
+    add_compile_options(-O2)
 endif()
 
 include(FetchContent)
@@ -17,8 +17,13 @@ FetchContent_Declare(
   GIT_REPOSITORY https://github.com/GPUOpen-LibrariesAndSDKs/ADLX.git 
   GIT_TAG V1.4
 )
-
 FetchContent_MakeAvailable(ADLX)
+
+FetchContent_Declare(
+	json 
+	URL https://github.com/nlohmann/json/releases/download/v3.12.0/json.tar.xz
+)
+FetchContent_MakeAvailable(json)
 
 add_library(ADLX OBJECT
   ${adlx_SOURCE_DIR}/SDK/ADLXHelper/Windows/Cpp/ADLXHelper.h
@@ -27,13 +32,15 @@ add_library(ADLX OBJECT
 )
 
 target_include_directories(ADLX
-	PUBLIC ${adlx_SOURCE_DIR}
+	SYSTEM PUBLIC ${adlx_SOURCE_DIR}
+	PUBLIC "include"
 )
 
 add_executable(ADLXCli
-	"main.cpp"
+	"src/main.cpp"
 )
 
 target_link_libraries(ADLXCli
 	PUBLIC ADLX
+	PRIVATE nlohmann_json::nlohmann_json
 )
