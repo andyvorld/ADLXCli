@@ -93,7 +93,65 @@ static auto TryCheck(auto ptr) {
     };
 }
 
-int main(void) {
+static ADLX_MEMORYTIMING_DESCRIPTION StringToMemoryTiming(std::string timing) {
+#define ENTRY(X) \
+    if (timing == #X) return X
+    ENTRY(MEMORYTIMING_DEFAULT);
+    ENTRY(MEMORYTIMING_FAST_TIMING);
+    ENTRY(MEMORYTIMING_FAST_TIMING_LEVEL_2);
+    ENTRY(MEMORYTIMING_AUTOMATIC);
+    ENTRY(MEMORYTIMING_MEMORYTIMING_LEVEL_1);
+    ENTRY(MEMORYTIMING_MEMORYTIMING_LEVEL_2);
+#undef ENTRY
+    throw std::runtime_error(std::format("Unknown memory timing setting '{}'", timing));
+}
+
+struct GpuState {
+    struct GpuTuning {
+        int MinFreq;
+        int MaxFreq;
+        int Voltage;
+    } gpuTuning;
+
+    struct VramTuning {
+        std::string MemoryTiming;
+        int MaxFreq;
+    } vramTuning;
+
+    struct FanTuning {
+        bool ZeroRpm;
+        std::vector<int> Speeds;
+        std::vector<int> Temperatures;
+    } fanTuning;
+
+    struct PowerTuning {
+        int PowerLimit;
+    } powerTuning;
+};
+
+static int _main(void) {
+    // clang-format off
+    GpuState gpuState = { 
+        .gpuTuning {
+            .MinFreq = 2400,
+            .MaxFreq = 2500,
+            .Voltage = 1125
+        },
+        .vramTuning {
+            .MemoryTiming = "MEMORYTIMING_DEFAULT",
+            .MaxFreq = 2614
+        },
+        .fanTuning {
+            .ZeroRpm = true,
+            .Speeds = { 23, 30, 41, 54, 80 },
+            .Temperatures = { 55, 70, 79, 88, 95 }
+        },
+        .powerTuning {
+            .PowerLimit = 15
+        }
+    };
+    // clang-format on
+
     // Initialize ADLX
     CHECK_ADLX(g_ADLX.Initialize());
 
@@ -119,15 +177,39 @@ int main(void) {
     {
         auto manualGFXTuningIfc = gpuIfaceGetter(&IADLXGPUTuningServices::GetManualGFXTuning);
         auto manualGFXTuning2Ptr = GetTuningPtr<IADLXManualGraphicsTuning2Ptr>(manualGFXTuningIfc);
-        SetIfaceValue(manualGFXTuning2Ptr, GPUMinFrequency, 2400, "MHz");
-        SetIfaceValue(manualGFXTuning2Ptr, GPUMaxFrequency, 2500, "MHz");
-        SetIfaceValue(manualGFXTuning2Ptr, GPUVoltage, 1125, "mV");
+        SetIfaceValue(manualGFXTuning2Ptr, GPUMinFrequency, gpuState.gpuTuning.MinFreq, "MHz");
+        SetIfaceValue(manualGFXTuning2Ptr, GPUMaxFrequency, gpuState.gpuTuning.MaxFreq, "MHz");
+        SetIfaceValue(manualGFXTuning2Ptr, GPUVoltage, gpuState.gpuTuning.Voltage, "mV");
     }
 
     {
         auto manualVramTuningIfc = gpuIfaceGetter(&IADLXGPUTuningServices::GetManualVRAMTuning);
-        auto vramTuning2Ptr = GetTuningPtr<IADLXManualVRAMTuning2Ptr>(manualVramTuningIfc);
-        SetIfaceValue(vramTuning2Ptr, MaxVRAMFrequency, 2614, "MHz");
+        auto manualVramTuning2Ptr = GetTuningPtr<IADLXManualVRAMTuning2Ptr>(manualVramTuningIfc);
+
+        IADLXMemoryTimingDescriptionListPtr timingList;
+        CHECK_ADLX(manualVramTuning2Ptr->GetSupportedMemoryTimingDescriptionList(&timingList));
+        auto CheckTimingSupported = [timingList =
+                                         std::as_const(timingList)](ADLX_MEMORYTIMING_DESCRIPTION val) -> bool {
+            for (int i = timingList->Begin(); i != timingList->End(); ++i) {
+                IADLXMemoryTimingDescriptionPtr ptr;
+                CHECK_ADLX(timingList->At(i, &ptr));
+
+                ADLX_MEMORYTIMING_DESCRIPTION desc;
+                CHECK_ADLX(ptr->GetDescription(&desc));
+
+                if (val == desc) return true;
+            }
+
+            return false;
+        };
+        auto newTiming = StringToMemoryTiming(gpuState.vramTuning.MemoryTiming);
+        if (!CheckTimingSupported(newTiming)) {
+            throw std::runtime_error(std::format("{} is not supported by the gpu", gpuState.vramTuning.MemoryTiming));
+        }
+        CHECK_ADLX(manualVramTuning2Ptr->SetMemoryTimingDescription(newTiming));
+        std::cout << std::format("Set MemoryTiming to {}", gpuState.vramTuning.MemoryTiming) << '\n';
+
+        SetIfaceValue(manualVramTuning2Ptr, MaxVRAMFrequency, gpuState.vramTuning.MaxFreq, "MHz");
     }
 
     {
@@ -146,8 +228,6 @@ int main(void) {
         CHECK_ADLX(manualFanTuningPtr->GetFanTuningRanges(&speedRange, &TemperatureRange));
 
         std::stringstream oss;
-        int speeds[] = {23, 30, 41, 54, 80};
-        int temps[] = {55, 70, 79, 88, 95};
         for (auto i = states->Begin(); i != states->End(); ++i) {
             IADLXManualFanTuningStatePtr state;
             CHECK_ADLX(states->At(i, &state));
@@ -156,8 +236,8 @@ int main(void) {
             CHECK_ADLX(state->GetFanSpeed(&speed));
             CHECK_ADLX(state->GetTemperature(&temperature));
 
-            int newSpeed = CheckRange(speeds[i], speedRange);
-            int newTemp = CheckRange(temps[i], TemperatureRange);
+            int newSpeed = CheckRange(gpuState.fanTuning.Speeds.at(i), speedRange);
+            int newTemp = CheckRange(gpuState.fanTuning.Temperatures.at(i), TemperatureRange);
             CHECK_ADLX(state->SetFanSpeed(newSpeed));
             CHECK_ADLX(state->SetTemperature(newTemp));
 
@@ -172,9 +252,17 @@ int main(void) {
         auto manualPowerTuningIfc = gpuIfaceGetter(&IADLXGPUTuningServices::GetManualPowerTuning);
         auto manualPowerTuningPtr = GetTuningPtr<IADLXManualPowerTuningPtr>(manualPowerTuningIfc);
 
-        SetIfaceValue(manualPowerTuningPtr, PowerLimit, 15, "%");
+        SetIfaceValue(manualPowerTuningPtr, PowerLimit, gpuState.powerTuning.PowerLimit, "%");
 
         ADLX_IntRange range;
         manualPowerTuningPtr->GetTDCLimitRange(&range);
+    }
+}
+
+int main(void) {
+    try {
+        return _main();
+    } catch (const std::runtime_error& e) {
+        std::cout << e.what() << '\n';
     }
 }

@@ -5,6 +5,7 @@ A cli tool to control tuning settings of modern AMD GPUs; validated on a 7900XTX
     - Min/Max Frequency
     - Voltage
 - VRAM Tuning
+    - Memory Timing
     - Max Frequency
 - Fan Tuning
     - Zero RPM toggle
