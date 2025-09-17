@@ -61,9 +61,9 @@ static int CheckRange(int val, const ADLX_IntRange& range) {
     return _val;
 }
 
-#define debugStream \
-    if (!IS_DEBUG) {   \
-    } else          \
+#define debugStream  \
+    if (!IS_DEBUG) { \
+    } else           \
         std::cout
 
 static void _SetIfaceValue(auto tuningIface, auto RangeF, auto SetF, std::string Fname, int val, std::string valUnit) {
@@ -117,29 +117,7 @@ static ADLX_MEMORYTIMING_DESCRIPTION StringToMemoryTiming(std::string timing) {
     throw std::runtime_error(std::format("Unknown memory timing setting '{}'", timing));
 }
 
-static int _main(void) {
-    // clang-format off
-    GpuState gpuState = { 
-        .gpuTuning {
-            .minFreq = 2400,
-            .maxFreq = 2500,
-            .voltage = 1125
-        },
-        .vramTuning {
-            .memoryTiming = "MEMORYTIMING_DEFAULT",
-            .maxFreq = 2614
-        },
-        .fanTuning {
-            .zeroRpm = true,
-            .speeds = { 23, 30, 41, 54, 80 },
-            .temperatures = { 55, 70, 79, 88, 95 }
-        },
-        .powerTuning {
-            .powerLimit = 15
-        }
-    };
-    // clang-format on
-
+static int _main(const GpuState& gpuState) {
     // Initialize ADLX
     CHECK_ADLX(g_ADLX.Initialize());
 
@@ -249,10 +227,47 @@ static int _main(void) {
     return 0;
 }
 
+constexpr char TEST_JSON[] = R"(
+    {
+        "fanTuning": {
+            "speeds": [
+                23,
+                30,
+                41,
+                54,
+                80
+            ],
+            "temperatures": [
+                55,
+                70,
+                79,
+                88,
+                95
+            ],
+            "zeroRpm": true
+        },
+        "gpuTuning": {
+            "maxFreq": 2500,
+            "minFreq": 2400,
+            "voltage": 1125
+        },
+        "powerTuning": {
+            "powerLimit": 15
+        },
+        "vramTuning": {
+            "maxFreq": 2614,
+            "memoryTiming": "MEMORYTIMING_DEFAULT"
+        }
+    }
+)";
+
 int main(void) {
     try {
-        return _main();
-    } catch (const std::runtime_error& e) {
+        json j = json::parse(TEST_JSON);
+        GpuState state = j.template get<GpuState>();
+
+        _main(state);
+    } catch (const std::exception &e) {
         debugStream << e.what() << '\n';
         return 1;
     }

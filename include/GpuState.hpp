@@ -1,54 +1,69 @@
 #pragma once
-#include "nlohmann/json.hpp"
+#pragma warning disable
+#include <nlohmann/json.hpp>
+#pragma warning restore
 using json = nlohmann::json;
 
-struct GpuState {
-    struct GpuTuning {
-        int minFreq;
-        int maxFreq;
-        int voltage;
-    } gpuTuning;
+#define GPU_TUNING_FIELDS     \
+    json_field(int, minFreq); \
+    json_field(int, maxFreq); \
+    json_field(int, voltage)
 
-    struct VramTuning {
-        std::string memoryTiming;
-        int maxFreq;
-    } vramTuning;
+#define VRAM_TUNING_FIELDS                 \
+    json_field(std::string, memoryTiming); \
+    json_field(int, maxFreq)
 
-    struct FanTuning {
-        bool zeroRpm;
-        std::vector<int> speeds;
-        std::vector<int> temperatures;
-    } fanTuning;
+#define FAN_TUNING_FIELDS                 \
+    json_field(bool, zeroRpm);            \
+    json_field(std::vector<int>, speeds); \
+    json_field(std::vector<int>, temperatures)
 
-    struct PowerTuning {
-        int powerLimit;
-    } powerTuning;
-};
+#define POWER_TUNING_FIELDS json_field(int, powerLimit)
 
-// clang-format off
-#define json_field(X) j[#X] = state.##X
-static void to_json(json& j, const GpuState::GpuTuning& state) { 
-    json_field(minFreq);
-    json_field(maxFreq);
-    json_field(voltage);
-}
-static void to_json(json& j, const GpuState::VramTuning& state) { 
-    json_field(memoryTiming);
-    json_field(maxFreq);
-}
-static void to_json(json& j, const GpuState::FanTuning& state) { 
-    json_field(zeroRpm);
-    json_field(speeds);
-    json_field(temperatures);
-}
-static void to_json(json& j, const GpuState::PowerTuning& state) { 
-    json_field(powerLimit);
-}
-static void to_json(json& j, const GpuState& state) {
-    json_field(gpuTuning);
-    json_field(vramTuning);
-    json_field(fanTuning);
-    json_field(powerTuning);
-}
+#define GPU_STATE_FIELDS                \
+    json_field(GpuTuning, gpuTuning);   \
+    json_field(VramTuning, vramTuning); \
+    json_field(FanTuning, fanTuning);   \
+    json_field(PowerTuning, powerTuning)
+
+#define JSON_TYPES                               \
+    json_type(GpuTuning, GPU_TUNING_FIELDS);     \
+    json_type(VramTuning, VRAM_TUNING_FIELDS);   \
+    json_type(FanTuning, FAN_TUNING_FIELDS);     \
+    json_type(PowerTuning, POWER_TUNING_FIELDS); \
+    json_type(GpuState, GPU_STATE_FIELDS)
+
+#pragma region struct def
+#define json_type(TYPE, FIELDS) \
+    struct TYPE {               \
+        FIELDS;                 \
+    }
+#define json_field(TYPE, X) TYPE X = {}
+
+JSON_TYPES;
+
 #undef json_field
-// clang-format on
+#undef json_type
+#pragma endregion
+
+#pragma region to_json
+#define json_type(TYPE, FIELDS) \
+    static void to_json(json& j, const TYPE& state) { FIELDS; }
+#define json_field(TYPE, X) j[#X] = state.##X
+
+JSON_TYPES;
+
+#undef json_field
+#undef json_type
+#pragma endregion
+
+#pragma region from_json
+#define json_type(TYPE, FIELDS) \
+    static void from_json(const json& j, TYPE& state) { FIELDS; }
+#define json_field(TYPE, X) j.at(#X).get_to(state.##X)
+
+JSON_TYPES;
+
+#undef json_field
+#undef json_type
+#pragma endregion

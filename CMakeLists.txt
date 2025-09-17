@@ -42,5 +42,5 @@ add_executable(ADLXCli
 
 target_link_libraries(ADLXCli
 	PUBLIC ADLX
-	PRIVATE nlohmann_json::nlohmann_json
+	PUBLIC nlohmann_json::nlohmann_json
 )
