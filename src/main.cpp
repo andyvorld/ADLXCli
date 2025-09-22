@@ -85,6 +85,17 @@ static void _SetIfaceValue(auto tuningIface, auto RangeF, auto SetF, std::string
     _SetIfaceValue(X, &std::remove_pointer<decltype(X.GetPtr())>::type::Get##Y##Range, \
                    &std::remove_pointer<decltype(X.GetPtr())>::type::Set##Y, #Y, Z, Zu)
 
+template <typename T, typename T2>
+static T2 _GetIfaceValue(auto tuningIface, ADLX_RESULT (__stdcall T::*GetF)(T2*), std::string Fname, std::string valUnit) {
+    T2 res = {};
+
+    CHECK_ADLX((tuningIface->*GetF)(&res));
+
+    return res;
+}
+#define GetIfaceValue(X, Y, Yu) \
+    _GetIfaceValue(X, &std::remove_pointer<decltype(X.GetPtr())>::type::Get##Y, #Y, Yu)
+
 template <typename T>
 static T GetTuningPtr(auto iface) {
     T ptr(iface);
@@ -146,6 +157,8 @@ static int _main(const GpuState& gpuState) {
         SetIfaceValue(manualGFXTuning2Ptr, GPUMinFrequency, gpuState.gpuTuning.minFreq, "MHz");
         SetIfaceValue(manualGFXTuning2Ptr, GPUMaxFrequency, gpuState.gpuTuning.maxFreq, "MHz");
         SetIfaceValue(manualGFXTuning2Ptr, GPUVoltage, gpuState.gpuTuning.voltage, "mV");
+
+        auto qwer = GetIfaceValue(manualGFXTuning2Ptr, GPUMinFrequency, "MHz");
     }
 
     {
@@ -227,6 +240,30 @@ static int _main(const GpuState& gpuState) {
     return 0;
 }
 
+static int _dump(GpuState& gpuState) {
+    // Initialize ADLX
+    CHECK_ADLX(g_ADLX.Initialize());
+
+    auto gpuTuningService = GetService(&IADLXSystem::GetGPUTuningServices);
+    auto gpus = GetService(&IADLXSystem::GetGPUs);
+
+    IADLXGPUPtr oneGPU;
+    CHECK_ADLX(gpus->At(0, &oneGPU));
+
+    auto gpuIfaceGetter = GpuIfaceGetter(gpuTuningService, oneGPU);
+
+    {
+        auto manualGFXTuningIfc = gpuIfaceGetter(&IADLXGPUTuningServices::GetManualGFXTuning);
+        auto manualGFXTuning2Ptr = GetTuningPtr<IADLXManualGraphicsTuning2Ptr>(manualGFXTuningIfc);
+
+        gpuState.gpuTuning.minFreq = GetIfaceValue(manualGFXTuning2Ptr, GPUMinFrequency, "MHz");
+        gpuState.gpuTuning.maxFreq = GetIfaceValue(manualGFXTuning2Ptr, GPUMaxFrequency, "MHz");
+        gpuState.gpuTuning.voltage = GetIfaceValue(manualGFXTuning2Ptr, GPUVoltage, "mV");
+    }
+
+    return 0;
+}
+
 constexpr char TEST_JSON[] = R"(
     {
         "fanTuning": {
@@ -263,11 +300,16 @@ constexpr char TEST_JSON[] = R"(
 
 int main(void) {
     try {
-        json j = json::parse(TEST_JSON);
-        GpuState state = j.template get<GpuState>();
+        //json j = json::parse(TEST_JSON);
+        //GpuState state = j.template get<GpuState>();
 
-        _main(state);
-    } catch (const std::exception &e) {
+        GpuState state = {};
+
+        _dump(state);
+
+        json j2 = state;
+        debugStream << j2.dump(1) << '\n';
+    } catch (const std::exception& e) {
         debugStream << e.what() << '\n';
         return 1;
     }
