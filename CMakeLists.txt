@@ -38,9 +38,11 @@ target_include_directories(ADLX
 
 add_executable(ADLXCli
 	"src/main.cpp"
+	"app.rc"
 )
 
 target_link_libraries(ADLXCli
 	PUBLIC ADLX
 	PUBLIC nlohmann_json::nlohmann_json
+PUBLIC WinToast
 )
