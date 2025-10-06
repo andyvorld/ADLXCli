@@ -1,8 +1,9 @@
 cmake_minimum_required(VERSION 3.14)
-project(ADLXCli)
+project(ADLXCli VERSION 0.0.1)
 
 set(CMAKE_CXX_STANDARD 23)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
+cmake_policy(SET CMP0135 NEW)
 
 if (CMAKE_BUILD_TYPE STREQUAL "Debug")
     add_definitions(-DDEBUG)
@@ -25,6 +26,13 @@ FetchContent_Declare(
 )
 FetchContent_MakeAvailable(json)
 
+FetchContent_Declare(
+	WinToast 
+	GIT_REPOSITORY https://github.com/mohabouje/WinToast.git
+	GIT_TAG v1.3.2
+)
+FetchContent_MakeAvailable(WinToast)
+
 add_library(ADLX OBJECT
   ${adlx_SOURCE_DIR}/SDK/ADLXHelper/Windows/Cpp/ADLXHelper.h
   ${adlx_SOURCE_DIR}/SDK/ADLXHelper/Windows/Cpp/ADLXHelper.cpp
@@ -36,13 +44,16 @@ target_include_directories(ADLX
 	PUBLIC "include"
 )
 
-add_executable(ADLXCli
+add_executable(ADLXCli WIN32
 	"src/main.cpp"
+	"src/toast.cpp"
 	"app.rc"
 )
 
 target_link_libraries(ADLXCli
 	PUBLIC ADLX
 	PUBLIC nlohmann_json::nlohmann_json
-PUBLIC WinToast
+	PUBLIC WinToast
 )
+
+configure_file ("version.h.in" "${CMAKE_CURRENT_LIST_DIR}/include/version.h" @ONLY)

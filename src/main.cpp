@@ -12,6 +12,7 @@
 #include <sstream>
 
 #include "GpuState.hpp"
+#include "toast.hpp"
 
 #if DEBUG
 constexpr bool IS_DEBUG = true;
@@ -86,15 +87,15 @@ static void _SetIfaceValue(auto tuningIface, auto RangeF, auto SetF, std::string
                    &std::remove_pointer<decltype(X.GetPtr())>::type::Set##Y, #Y, Z, Zu)
 
 template <typename T, typename T2>
-static T2 _GetIfaceValue(auto tuningIface, ADLX_RESULT (__stdcall T::*GetF)(T2*), std::string Fname, std::string valUnit) {
+static T2 _GetIfaceValue(auto tuningIface, ADLX_RESULT (__stdcall T::*GetF)(T2*), std::string Fname,
+                         std::string valUnit) {
     T2 res = {};
 
     CHECK_ADLX((tuningIface->*GetF)(&res));
 
     return res;
 }
-#define GetIfaceValue(X, Y, Yu) \
-    _GetIfaceValue(X, &std::remove_pointer<decltype(X.GetPtr())>::type::Get##Y, #Y, Yu)
+#define GetIfaceValue(X, Y, Yu) _GetIfaceValue(X, &std::remove_pointer<decltype(X.GetPtr())>::type::Get##Y, #Y, Yu)
 
 template <typename T>
 static T GetTuningPtr(auto iface) {
@@ -115,18 +116,32 @@ static auto TryCheck(auto ptr) {
     };
 }
 
+#pragma region MEMORY_TIMING_ENUMS
+#define TIMING_ENTRIES                        \
+    ENTRY(MEMORYTIMING_DEFAULT);              \
+    ENTRY(MEMORYTIMING_FAST_TIMING);          \
+    ENTRY(MEMORYTIMING_FAST_TIMING_LEVEL_2);  \
+    ENTRY(MEMORYTIMING_AUTOMATIC);            \
+    ENTRY(MEMORYTIMING_MEMORYTIMING_LEVEL_1); \
+    ENTRY(MEMORYTIMING_MEMORYTIMING_LEVEL_2)
+
 static ADLX_MEMORYTIMING_DESCRIPTION StringToMemoryTiming(std::string timing) {
 #define ENTRY(X) \
     if (timing == #X) return X
-    ENTRY(MEMORYTIMING_DEFAULT);
-    ENTRY(MEMORYTIMING_FAST_TIMING);
-    ENTRY(MEMORYTIMING_FAST_TIMING_LEVEL_2);
-    ENTRY(MEMORYTIMING_AUTOMATIC);
-    ENTRY(MEMORYTIMING_MEMORYTIMING_LEVEL_1);
-    ENTRY(MEMORYTIMING_MEMORYTIMING_LEVEL_2);
+    TIMING_ENTRIES;
 #undef ENTRY
     throw std::runtime_error(std::format("Unknown memory timing setting '{}'", timing));
 }
+
+static std::string MemoryTimingToString(ADLX_MEMORYTIMING_DESCRIPTION timing) {
+#define ENTRY(X) \
+    if (timing == X) return #X
+    TIMING_ENTRIES;
+#undef ENTRY
+    throw std::runtime_error(std::format("Unknown memory timing setting '{}'", static_cast<int>(timing)));
+}
+#undef TIMING_ENTIRES
+#pragma endregion
 
 static int _main(const GpuState& gpuState) {
     // Initialize ADLX
@@ -151,7 +166,7 @@ static int _main(const GpuState& gpuState) {
 #undef check
     }
 
-    {
+    {  // Gpu Tuning
         auto manualGFXTuningIfc = gpuIfaceGetter(&IADLXGPUTuningServices::GetManualGFXTuning);
         auto manualGFXTuning2Ptr = GetTuningPtr<IADLXManualGraphicsTuning2Ptr>(manualGFXTuningIfc);
         SetIfaceValue(manualGFXTuning2Ptr, GPUMinFrequency, gpuState.gpuTuning.minFreq, "MHz");
@@ -161,7 +176,7 @@ static int _main(const GpuState& gpuState) {
         auto qwer = GetIfaceValue(manualGFXTuning2Ptr, GPUMinFrequency, "MHz");
     }
 
-    {
+    {  // Vram Tuning
         auto manualVramTuningIfc = gpuIfaceGetter(&IADLXGPUTuningServices::GetManualVRAMTuning);
         auto manualVramTuning2Ptr = GetTuningPtr<IADLXManualVRAMTuning2Ptr>(manualVramTuningIfc);
 
@@ -191,7 +206,7 @@ static int _main(const GpuState& gpuState) {
         SetIfaceValue(manualVramTuning2Ptr, MaxVRAMFrequency, gpuState.vramTuning.maxFreq, "MHz");
     }
 
-    {
+    {  // Fan tuning
         auto manualFanTuningIfc = gpuIfaceGetter(&IADLXGPUTuningServices::GetManualFanTuning);
         auto manualFanTuningPtr = GetTuningPtr<IADLXManualFanTuningPtr>(manualFanTuningIfc);
 
@@ -227,7 +242,7 @@ static int _main(const GpuState& gpuState) {
         debugStream << oss.str();
     }
 
-    {
+    {  // Power Tuning
         auto manualPowerTuningIfc = gpuIfaceGetter(&IADLXGPUTuningServices::GetManualPowerTuning);
         auto manualPowerTuningPtr = GetTuningPtr<IADLXManualPowerTuningPtr>(manualPowerTuningIfc);
 
@@ -252,13 +267,56 @@ static int _dump(GpuState& gpuState) {
 
     auto gpuIfaceGetter = GpuIfaceGetter(gpuTuningService, oneGPU);
 
-    {
+    {  // Gpu tuning
         auto manualGFXTuningIfc = gpuIfaceGetter(&IADLXGPUTuningServices::GetManualGFXTuning);
         auto manualGFXTuning2Ptr = GetTuningPtr<IADLXManualGraphicsTuning2Ptr>(manualGFXTuningIfc);
 
         gpuState.gpuTuning.minFreq = GetIfaceValue(manualGFXTuning2Ptr, GPUMinFrequency, "MHz");
         gpuState.gpuTuning.maxFreq = GetIfaceValue(manualGFXTuning2Ptr, GPUMaxFrequency, "MHz");
         gpuState.gpuTuning.voltage = GetIfaceValue(manualGFXTuning2Ptr, GPUVoltage, "mV");
+    }
+
+    {  // Vram tuning
+        auto manualVramTuningIfc = gpuIfaceGetter(&IADLXGPUTuningServices::GetManualVRAMTuning);
+        auto manualVramTuning2Ptr = GetTuningPtr<IADLXManualVRAMTuning2Ptr>(manualVramTuningIfc);
+
+        gpuState.vramTuning.maxFreq = GetIfaceValue(manualVramTuning2Ptr, MaxVRAMFrequency, "MHz");
+
+        ADLX_MEMORYTIMING_DESCRIPTION desc;
+        CHECK_ADLX(manualVramTuning2Ptr->GetMemoryTimingDescription(&desc));
+        gpuState.vramTuning.memoryTiming = MemoryTimingToString(desc);
+    }
+
+    {  // Fan tuning
+        auto manualFanTuningIfc = gpuIfaceGetter(&IADLXGPUTuningServices::GetManualFanTuning);
+        auto manualFanTuningPtr = GetTuningPtr<IADLXManualFanTuningPtr>(manualFanTuningIfc);
+
+        auto _check = TryCheck(manualFanTuningPtr);
+        if (_check(&IADLXManualFanTuning::IsSupportedZeroRPM)) {
+            manualFanTuningPtr->GetZeroRPMState(&gpuState.fanTuning.zeroRpm);
+        }
+
+        IADLXManualFanTuningStateListPtr states;
+        CHECK_ADLX(manualFanTuningPtr->GetFanTuningStates(&states));
+
+        for (auto i = states->Begin(); i != states->End(); ++i) {
+            IADLXManualFanTuningStatePtr state;
+            CHECK_ADLX(states->At(i, &state));
+
+            adlx_int speed = 0, temperature = 0;
+            CHECK_ADLX(state->GetFanSpeed(&speed));
+            CHECK_ADLX(state->GetTemperature(&temperature));
+
+            gpuState.fanTuning.speeds.push_back(speed);
+            gpuState.fanTuning.temperatures.push_back(temperature);
+        }
+    }
+
+    {  // Power Tuning
+        auto manualPowerTuningIfc = gpuIfaceGetter(&IADLXGPUTuningServices::GetManualPowerTuning);
+        auto manualPowerTuningPtr = GetTuningPtr<IADLXManualPowerTuningPtr>(manualPowerTuningIfc);
+
+        gpuState.powerTuning.powerLimit = GetIfaceValue(manualPowerTuningPtr, PowerLimit, "%");
     }
 
     return 0;
@@ -300,17 +358,28 @@ constexpr char TEST_JSON[] = R"(
 
 int main(void) {
     try {
-        //json j = json::parse(TEST_JSON);
-        //GpuState state = j.template get<GpuState>();
+        GpuState targetState = json::parse(TEST_JSON).template get<GpuState>();
 
-        GpuState state = {};
+        GpuState currentState;
+        _dump(currentState);
 
-        _dump(state);
+        json jCurrent = {currentState};
+        json jTarget = {targetState};
 
-        json j2 = state;
-        debugStream << j2.dump(1) << '\n';
+        if (jCurrent == jTarget) {
+            ToastNoop();
+        } else {
+            _main(targetState);
+            ToastSuccess();
+        }
     } catch (const std::exception& e) {
+        ToastFail();
         debugStream << e.what() << '\n';
         return 1;
     }
+}
+
+static int WINAPI WinMain(_In_ HINSTANCE hInstance, _In_opt_ HINSTANCE hPrevInstance, _In_ PSTR lpCmdLine,
+                          _In_ int nCmdShow) {
+    return main();
 }
